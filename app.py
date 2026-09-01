@@ -1,47 +1,73 @@
-import mimetypes
 import os
+import mimetypes
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import HTMLResponse
 from google import genai
 from google.genai import types
 
-# Gemini APIキーの取得（Renderの環境変数から読み込みます）
-API_KEY == os.environ.get("GEMINI_API_KEY")
+app = FastAPI()
 
-# 2. 写真の読み込み設定
-image_path = "cloud_photo.jpg"
+# 🔑 修正ポイント1：イコールを1つ（=）にして、環境変数からAPIキーを取得
+api_key = os.environ.get("GEMINI_API_KEY")
 
-# ファイルが存在するかチェック
-if not os.path.exists(image_path):
-  print(
-      f"エラー: '{image_path}' が見つかりません。同じフォルダに画像を置いてください。"
-  )
-  exit()
+# 🌐 スマホでアクセスしたときに表示される「表画面（HTML）」
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    return """
+    <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>雲カメラ AI (FastAPI)</title>
+        </head>
+        <body style="text-align: center; font-family: sans-serif; padding-top: 50px;">
+            <h1>📸 雲カメラ AI (FastAPI版)</h1>
+            <p>写真を撮影またはアップロードすると、AIが雲の名前を判定します。</p>
+            <br>
+            <form action="/analyze" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" accept="image/*" required><br><br><br>
+                <button type="submit" style="padding: 12px 24px; font-size: 16px;">AIで解析する</button>
+            </form>
+        </body>
+    </html>
+    """
 
-# 画像の形式（jpegやpngなど）を自動判別
-mime_type, _ = mimetypes.guess_type(image_path)
-
-with open(image_path, "rb") as f:
-  image_bytes = f.read()
-
-# 3. AIクライアントの初期化
-client = genai.Client(api_key=API_KEY)
-print("Gemini（無料枠）に雲の写真を送信中...（数秒かかります）")
-
-try:
-  # 4. 無料のFlashモデルで画像と質問を送信
-  response = client.models.generate_content(
-      model="gemini-2.5-flash",
-      contents=[
-          types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-          (
-              "この空の雲の種類を判定し、明日の天気予報の確率を"
-              "日本語で答えてください。"
-          ),
-      ],
-  )
-
-  # 5. 判定結果を表示
-  print("\n--- AIからの判定結果 ---")
-  print(response.text)
-
-except Exception as e:
-  print(f"\nエラーが発生しました: {e}")
+# 🤖 ボタンが押されたときに裏側でGeminiを動かす処理
+@app.post("/analyze")
+async def analyze(file: UploadFile = File(...)):
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Gemini APIキーが設定されていません。")
+    
+    try:
+        # 修正ポイント2：スマホから送信された画像データを読み込む
+        image_bytes = await file.read()
+        mime_type, _ = mimetypes.guess_type(file.filename)
+        if not mime_type:
+            mime_type = "image/jpeg"
+            
+        client = genai.Client(api_key=api_key)
+        
+        # 以前のコードの「判定の質問内容」をそのまま引き継いでいます
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                "この空の雲の種類を判定し、明日の天気予報の確率を日本語で答えてください。"
+            ],
+        )
+        
+        # 結果を画面に返す
+        return HTMLResponse(content=f"""
+        <html>
+            <body style="text-align: center; font-family: sans-serif; padding-top: 50px; padding-horizontal: 20px;">
+                <h2>--- AIからの判定結果 ---</h2>
+                <p style="font-size: 18px; line-height: 1.6; max-width: 600px; margin: 0 auto; text-align: left;">
+                    {response.text.replace(chr(10), '<br>')}
+                </p>
+                <br><br>
+                <a href="/" style="font-size: 16px;">ともかくもう一度撮影する</a>
+            </body>
+        </html>
+        """)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"エラーが発生しました: {str(e)}")
