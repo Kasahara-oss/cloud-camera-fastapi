@@ -1,47 +1,47 @@
+import mimetypes
 import os
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import HTMLResponse
 from google import genai
-
-app = FastAPI()
+from google.genai import types
 
 # Gemini APIキーの取得（Renderの環境変数から読み込みます）
-api_key = os.environ.get("GEMINI_API_KEY")
+API_KEY == os.environ.get("GEMINI_API_KEY")
 
+# 2. 写真の読み込み設定
+image_path = "cloud_photo.jpg"
 
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    # 1番目のアプリ用の、FastAPIで動くシンプルなHTML画面です
-    return """
-    <html>
-        <head><title>雲カメラ AI (FastAPI)</title></head>
-        <body style="text-align: center; font-family: sans-serif; padding-top: 50px;">
-            <h1>📸 雲カメラ AI (FastAPI版)</h1>
-            <p>写真をアップロードすると、AIが雲の名前を判定します。</p>
-            <form action="/analyze" method="post" enctype="multipart/form-data">
-                <input type="file" name="file" accept="image/*" required><br><br>
-                <button type="submit" style="padding: 10px 20px;">AIで解析する</button>
-            </form>
-        </body>
-    </html>
-    """
+# ファイルが存在するかチェック
+if not os.path.exists(image_path):
+  print(
+      f"エラー: '{image_path}' が見つかりません。同じフォルダに画像を置いてください。"
+  )
+  exit()
 
-@app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
-    if not api_key:
-        raise HTTPException(status_code=500, detail="Gemini APIキーが設定されていません。")
-    
-    try:
-        client = genai.Client(api_key=api_key)
-        image_bytes = await file.read()
-        
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[
-                {'mime_type': 'image/jpeg', 'data': image_bytes},
-                "この画像に写っている雲の種類を特定し、その特徴と天気の変化を分かりやすく日本語で150文字程度で解説してください。"
-            ]
-        )
-        return {"result": response.text}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI解析エラー: {str(e)}")
+# 画像の形式（jpegやpngなど）を自動判別
+mime_type, _ = mimetypes.guess_type(image_path)
+
+with open(image_path, "rb") as f:
+  image_bytes = f.read()
+
+# 3. AIクライアントの初期化
+client = genai.Client(api_key=API_KEY)
+print("Gemini（無料枠）に雲の写真を送信中...（数秒かかります）")
+
+try:
+  # 4. 無料のFlashモデルで画像と質問を送信
+  response = client.models.generate_content(
+      model="gemini-2.5-flash",
+      contents=[
+          types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+          (
+              "この空の雲の種類を判定し、明日の天気予報の確率を"
+              "日本語で答えてください。"
+          ),
+      ],
+  )
+
+  # 5. 判定結果を表示
+  print("\n--- AIからの判定結果 ---")
+  print(response.text)
+
+except Exception as e:
+  print(f"\nエラーが発生しました: {e}")
